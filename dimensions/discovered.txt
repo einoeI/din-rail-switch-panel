@@ -1,3 +1,3 @@
-Small Toggle Switch: 6.3 mm (tested) 
+Small Toggle Switch: 6.3 mm (tested) + notch from hole_text_plate_2
 Push-Buttons: 16 mm (tested)
-Big Toggle Switch: 12 mm (NOT TESTED)
+Big Toggle Switch: 12 mm (tested) + notch from hole_test_plate_2
