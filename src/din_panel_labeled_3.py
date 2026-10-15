@@ -39,14 +39,21 @@ KEY_D = 1.0
 TITLE, SMALL = 3.5, 3.0
 TOP = 17.5            # every title on one line
 # (hole, [(text, x offset from hole centre, font size)]) left to right
+# dx runs along X (up the panel); text itself runs along Y (along the rail,
+# the PITCH direction) so a line can't be much longer than the ones already
+# proven to fit (e.g. "PUSH TO START") without reaching into the next hole -
+# longer labels are split into stacked lines at the same dx steps instead.
 COMPONENTS = [
-    ("button", [("MAIN POWER", TOP, TITLE), ("LIGHT = ON", -12.5, SMALL)]),
-    ("button", [("PUSH TO START", TOP, TITLE), ("3S FOR RESET", 13.0, SMALL), ("SERVER STATUS", -12.5, TITLE)]),
+    ("button", [("MAIN POWER", TOP, TITLE)]),
+    ("button", [("MODBUS SERVER", TOP, TITLE), ("PUSH TO RESET", -12.5, TITLE)]),
     ("toggle", [("SIMULATION", TOP, TITLE)]),
-    ("toggle", [("ARM", TOP, TITLE)]),
-    ("button", [("REACTOR TRIP", TOP, TITLE)]),
+    ("toggle", [("MANUAL TRIP", TOP, TITLE), ("ARMING SWITCH", 13.0, TITLE)]),
+    ("button", [("REACTOR TRIP", TOP, TITLE), ("SWITCH MUST BE", -12.5, SMALL), ("ARMED", -16.5, SMALL)]),
 ]
 LENGTH = PITCH * len(COMPONENTS)
+
+SEPARATOR_Y = PITCH * 3  # boundary between the SIMULATION (setup) and ARM (reactor ops) holes
+SEPARATOR_W = 1.0        # ridge thickness along the rail
 
 
 def box(x0, x1, y0, y1, z0, z1):
@@ -75,13 +82,24 @@ def body():
 
 
 def labels():
+    # color is set per leaf: a group Compound's color doesn't propagate to its children
+    white = srgb("#FFFFFF")
     shapes = []
     for i, (kind, lines) in enumerate(COMPONENTS):
         for text, dx, size in lines:
             plane = bd.Plane(origin=(HOLE_X + dx, PITCH * (i + 0.5), 0), x_dir=(0, 1, 0), z_dir=(0, 0, -1))
             glyphs = bd.Text(text, size, font_path=FONT, align=(bd.Align.CENTER, bd.Align.CENTER))
-            shapes.append(bd.extrude(plane * glyphs, amount=TEXT_HEIGHT))
-    return bd.Compound(shapes)
+            glyph_solid = bd.extrude(plane * glyphs, amount=TEXT_HEIGHT)
+            glyph_solid.color = white
+            shapes.append(glyph_solid)
+    separator = box(
+        WALL, WIDTH - WALL,
+        SEPARATOR_Y - SEPARATOR_W / 2, SEPARATOR_Y + SEPARATOR_W / 2,
+        -TEXT_HEIGHT, 0,
+    )
+    separator.color = white
+    shapes.append(separator)
+    return bd.Compound(children=shapes)
 
 
 @step(out="../STEP/din_panel_labeled_3.step")
@@ -90,10 +108,9 @@ def labels():
 def din_panel_labeled_3():
     panel = body()
     panel.label = "din_panel"
-    panel.color = srgb("#2E3742")
+    panel.color = srgb("#CC0000")
     text = labels()
     text.label = "labels"
-    text.color = srgb("#F2F2F2")
     return bd.Compound(children=[panel, text], label="din_panel_labeled_3")
 
 
