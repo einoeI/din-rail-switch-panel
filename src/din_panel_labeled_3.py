@@ -1,4 +1,4 @@
-"""DIN rail panel v3: button / button / big toggle / big toggle / button.
+"""DIN rail panel v3: button / button / small toggle / big toggle / big toggle / button.
 
 Big toggles (KN3C style) have a 29.5 x 15.6 mm body behind the plate, long side
 across the rail (lever moves up/down). The old 32 mm interior left no room for
@@ -7,12 +7,15 @@ the box no longer has to match the rail: the rail clip sits on two rear lips
 that keep the old (tested) 35.5 mm slide-on groove and 32 mm rail opening.
 
 X across the rail (up on the panel), Y along the rail,
-Z front plate (0) to rail (back). Labels are raised 0.6 mm on the front face,
-a separate body for a second colour.
+Z front plate (0) to rail (back). Structure only - no engraved/raised text;
+labels are added later in Bambu Studio.
 """
 
+import struct
+import zipfile
+
 from cadgen import build123d as bd
-from cadgen import srgb, step, stl, threemf
+from cadgen import srgb, step
 
 # Rail profile, from the tested din_panel
 DEPTH = 54.3          # front face to back of rail lips
@@ -22,38 +25,25 @@ GROOVE_Z = 50.8       # groove starts here
 GROOVE_H = 1.5        # 1 mm rail flange + clearance
 BUTTON_HOLE = 16.3    # 16 mm button, calibration knob
 
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-TEXT_HEIGHT = 0.6     # raised above the front face (3 layers at 0.2)
-
-WIDTH = 50.0          # was 40; 29.5 body leaves ~6 mm per side for terminals
+WIDTH = 60.0          # was 50; extended for the push-button label clearance
 WALL = 4.0
 RAIL_OPENING = 32.0   # old interior width, so the rail engages the same 1.5 mm per side
 LIP_Z = GROOVE_Z - 2.0  # rear lip front face; 45 deg chamfer below it, printable face down
-PITCH = 35.0          # widest label (30.9 mm) + gap
-HOLE_X = 23.0         # hole centres, a bit low so the two-line tops fit
+PITCH = 35.0          # hole spacing along the rail
+HOLE_X = 29.4         # hole centres, across the rail
 
 TOGGLE_HOLE = 12.3    # 12 mm bushing, +0.3 like the tested 16.3 button hole; NOT TESTED
 KEY_W = 2.0           # anti-rotation tab into the hole (bushing keyway), at OFF (down, -X)
 KEY_D = 1.0
 
-TITLE, SMALL = 3.5, 3.0
-TOP = 17.5            # every title on one line
-# (hole, [(text, x offset from hole centre, font size)]) left to right
-# dx runs along X (up the panel); text itself runs along Y (along the rail,
-# the PITCH direction) so a line can't be much longer than the ones already
-# proven to fit (e.g. "PUSH TO START") without reaching into the next hole -
-# longer labels are split into stacked lines at the same dx steps instead.
-COMPONENTS = [
-    ("button", [("MAIN POWER", TOP, TITLE)]),
-    ("button", [("MODBUS SERVER", TOP, TITLE), ("PUSH TO RESET", -12.5, TITLE)]),
-    ("toggle", [("SIMULATION", TOP, TITLE)]),
-    ("toggle", [("MANUAL TRIP", TOP, TITLE), ("ARMING SWITCH", 13.0, TITLE)]),
-    ("button", [("REACTOR TRIP", TOP, TITLE), ("SWITCH MUST BE", -12.5, SMALL), ("ARMED", -16.5, SMALL)]),
-]
-LENGTH = PITCH * len(COMPONENTS)
+SMALL_TOGGLE_HOLE = 6.3  # small toggle bushing, tested (dimensions.md)
+SMALL_KEY_W = 1.0
+SMALL_KEY_D = 0.5
 
-SEPARATOR_Y = PITCH * 3  # boundary between the SIMULATION (setup) and ARM (reactor ops) holes
-SEPARATOR_W = 1.0        # ridge thickness along the rail
+# hole kind per component, left to right: main power, modbus server, HIL/
+# standalone, simulation, manual trip/arming, reactor trip
+COMPONENTS = ["button", "button", "toggle_small", "toggle", "toggle", "button"]
+LENGTH = PITCH * len(COMPONENTS)
 
 
 def box(x0, x1, y0, y1, z0, z1):
@@ -71,48 +61,79 @@ def body():
     solid = bd.extrude(bd.Plane.XZ * profile, amount=-LENGTH)
     g0 = c - RAIL_GROOVE / 2
     solid -= box(g0, WIDTH - g0, 0, LENGTH, GROOVE_Z, GROOVE_Z + GROOVE_H)
-    for i, (kind, _) in enumerate(COMPONENTS):
+    for i, kind in enumerate(COMPONENTS):
         at = bd.Pos(HOLE_X, PITCH * (i + 0.5), FRONT / 2)
         if kind == "button":
             solid -= at * bd.Cylinder(BUTTON_HOLE / 2, FRONT * 2)
         else:
-            r = TOGGLE_HOLE / 2
-            solid -= at * (bd.Cylinder(r, FRONT * 2) - bd.Pos(-r + (KEY_D - 1) / 2, 0, 0) * bd.Box(KEY_D + 1, KEY_W, FRONT * 2))
+            d, kw, kd = (TOGGLE_HOLE, KEY_W, KEY_D) if kind == "toggle" else (SMALL_TOGGLE_HOLE, SMALL_KEY_W, SMALL_KEY_D)
+            r = d / 2
+            solid -= at * (bd.Cylinder(r, FRONT * 2) - bd.Pos(-r + (kd - 1) / 2, 0, 0) * bd.Box(kd + 1, kw, FRONT * 2))
     return solid
 
 
-def labels():
-    # color is set per leaf: a group Compound's color doesn't propagate to its children
-    white = srgb("#FFFFFF")
-    shapes = []
-    for i, (kind, lines) in enumerate(COMPONENTS):
-        for text, dx, size in lines:
-            plane = bd.Plane(origin=(HOLE_X + dx, PITCH * (i + 0.5), 0), x_dir=(0, 1, 0), z_dir=(0, 0, -1))
-            glyphs = bd.Text(text, size, font_path=FONT, align=(bd.Align.CENTER, bd.Align.CENTER))
-            glyph_solid = bd.extrude(plane * glyphs, amount=TEXT_HEIGHT)
-            glyph_solid.color = white
-            shapes.append(glyph_solid)
-    separator = box(
-        WALL, WIDTH - WALL,
-        SEPARATOR_Y - SEPARATOR_W / 2, SEPARATOR_Y + SEPARATOR_W / 2,
-        -TEXT_HEIGHT, 0,
-    )
-    separator.color = white
-    shapes.append(separator)
-    return bd.Compound(children=shapes)
-
-
 @step(out="../STEP/din_panel_labeled_3.step")
-@stl(out="../STL/din_panel_labeled_3.stl")
-@threemf(out="../3MF/din_panel_labeled_3.3mf")
 def din_panel_labeled_3():
     panel = body()
     panel.label = "din_panel"
     panel.color = srgb("#CC0000")
-    text = labels()
-    text.label = "labels"
-    return bd.Compound(children=[panel, text], label="din_panel_labeled_3")
+    return panel
+
+
+# cadgen's own `@stl`/`@threemf` mesh engine occasionally caps one hole with a
+# spurious flat disc of triangles (confirmed on this file, position-dependent,
+# reproducible on cadgen 0.7.15 and 0.7.21) even though the STEP/BREP is
+# correct - build123d's own .tessellate() on the same shape is clean, so the
+# mesh files are built from that directly instead of the shared mesh engine.
+def write_stl(path, shape):
+    verts, tris = shape.tessellate(1e-3, 0.1)
+    with open(path, "wb") as f:
+        f.write(b"\0" * 80)
+        f.write(struct.pack("<I", len(tris)))
+        for i1, i2, i3 in tris:
+            v1, v2, v3 = verts[i1], verts[i2], verts[i3]
+            ax, ay, az = v2.X - v1.X, v2.Y - v1.Y, v2.Z - v1.Z
+            bx, by, bz = v3.X - v1.X, v3.Y - v1.Y, v3.Z - v1.Z
+            nx, ny, nz = ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx
+            mag = (nx * nx + ny * ny + nz * nz) ** 0.5 or 1.0
+            f.write(struct.pack("<3f", nx / mag, ny / mag, nz / mag))
+            for v in (v1, v2, v3):
+                f.write(struct.pack("<3f", v.X, v.Y, v.Z))
+            f.write(struct.pack("<H", 0))
+
+
+def write_3mf(path, shape, color):
+    verts, tris = shape.tessellate(1e-3, 0.1)
+    vxml = "".join(f'<vertex x="{v.X}" y="{v.Y}" z="{v.Z}"/>' for v in verts)
+    txml = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in tris)
+    model = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
+        f'<resources><basematerials id="1"><base name="material-0" displaycolor="{color}"/></basematerials>'
+        f'<object id="2" type="model" pid="1" pindex="0">'
+        f"<mesh><vertices>{vxml}</vertices><triangles>{txml}</triangles></mesh></object></resources>"
+        '<build><item objectid="2"/></build></model>'
+    )
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/></Types>'
+    )
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Target="/3D/3dmodel.model" Id="rel-1" '
+        'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>'
+    )
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", content_types)
+        z.writestr("_rels/.rels", rels)
+        z.writestr("3D/3dmodel.model", model)
 
 
 if __name__ == "__main__":
     din_panel_labeled_3()
+    panel = body()
+    write_stl("../STL/din_panel_labeled_3.stl", panel)
+    write_3mf("../3MF/din_panel_labeled_3.3mf", panel, "#CC0000FF")
